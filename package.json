@@ -1,6 +1,7 @@
 {
   "name": "debug-console-grep",
   "displayName": "Debug Console Grep",
+  "publisher": "local-dev",
   "description": "Add grep functionality for debag console",
   "version": "0.0.1",
   "engines": {
@@ -9,13 +10,16 @@
   "categories": [
     "Other"
   ],
-  "activationEvents": [],
+  "activationEvents": [
+    "onDebug",
+    "onStartupFinished"
+  ],
   "main": "./dist/extension.js",
   "contributes": {
     "commands": [
       {
-        "command": "debug-console-grep.helloWorld",
-        "title": "Hello World"
+        "command": "debug-console-grep.open",
+        "title": "Open Grep Console"
       }
     ]
   },
