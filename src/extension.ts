@@ -7,6 +7,7 @@ export function activate(context: vscode.ExtensionContext) {
         if (panel) {
             panel.reveal(vscode.ViewColumn.Two);
         } else {
+            const initialWrap = context.globalState.get<boolean>('grep-console-wrap', false);
             panel = vscode.window.createWebviewPanel(
                 'grepConsole',
                 'Grep Console',
@@ -17,7 +18,7 @@ export function activate(context: vscode.ExtensionContext) {
                 }
             );
 
-            panel.webview.html = getWebviewContent();
+            panel.webview.html = getWebviewContent(initialWrap);
             
             panel.onDidDispose(() => {
                 panel = undefined;
@@ -28,6 +29,8 @@ export function activate(context: vscode.ExtensionContext) {
                     console.log('Webview Log:', m.data);
                 } else if (m.type === 'ready') {
                     console.log('Webview is ready');
+                } else if (m.type === 'set-wrap') {
+                    context.globalState.update('grep-console-wrap', m.value);
                 }
             });
         }
@@ -56,7 +59,7 @@ export function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(tracker);
 }
 
-function getWebviewContent() {
+function getWebviewContent(initialWrap: boolean) {
     return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -64,13 +67,15 @@ function getWebviewContent() {
     <style>
         body { font-family: var(--vscode-editor-font-family), sans-serif; padding: 0; margin: 0; display: flex; flex-direction: column; height: 100vh; background: var(--vscode-editor-background); color: var(--vscode-foreground); overflow: hidden; }
         #header { padding: 8px; border-bottom: 1px solid var(--vscode-panel-border); background: var(--vscode-sideBar-background); flex-shrink: 0; }
-        #controls { display: flex; gap: 8px; }
+        #controls { display: flex; gap: 8px; align-items: center; }
         input { flex: 1; padding: 4px 8px; background: var(--vscode-input-background); color: var(--vscode-input-foreground); border: 1px solid var(--vscode-input-border); outline: none; }
         input:focus { border-color: var(--vscode-focusBorder); }
         button { padding: 4px 12px; background: var(--vscode-button-background); color: var(--vscode-button-foreground); border: none; cursor: pointer; }
         button:hover { background: var(--vscode-button-hoverBackground); }
+        .checkbox-container { display: flex; align-items: center; gap: 4px; font-size: 11px; cursor: pointer; user-select: none; }
         #debug-info { font-size: 10px; opacity: 0.6; margin-top: 4px; height: 1.2em; display: flex; justify-content: space-between; }
-        #output { flex: 1; overflow-y: auto; padding: 8px; font-family: var(--vscode-editor-font-family), monospace; white-space: pre-wrap; font-size: 12px; }
+        #output { flex: 1; overflow-y: auto; padding: 8px; font-family: var(--vscode-editor-font-family), monospace; white-space: pre; font-size: 12px; }
+        #output.wrap { white-space: pre-wrap; }
         .line { border-bottom: 1px solid rgba(128, 128, 128, 0.05); line-height: 1.4; }
         .match { font-weight: bold; color: var(--vscode-terminal-ansiBrightYellow); background: rgba(255, 255, 0, 0.05); }
         .context { opacity: 0.5; font-style: italic; }
@@ -81,6 +86,9 @@ function getWebviewContent() {
     <div id="header">
         <div id="controls">
             <input type="text" id="filter" placeholder="e.g. con -C2 or error -A5" spellcheck="false" />
+            <label class="checkbox-container">
+                <input type="checkbox" id="wrap-toggle" ${initialWrap ? 'checked' : ''} /> Wrap
+            </label>
             <button id="clear">Clear</button>
         </div>
         <div id="debug-info">
@@ -93,6 +101,7 @@ function getWebviewContent() {
         const vscode = acquireVsCodeApi();
         const outputDiv = document.getElementById('output');
         const filterInput = document.getElementById('filter');
+        const wrapToggle = document.getElementById('wrap-toggle');
         const querySpan = document.getElementById('parsed-query');
         const statsSpan = document.getElementById('stats');
         
@@ -100,6 +109,17 @@ function getWebviewContent() {
         let buffer = '';
         let renderPending = false;
         const MAX_LINES = 5000;
+
+        const updateWrap = () => {
+            if (wrapToggle.checked) {
+                outputDiv.classList.add('wrap');
+            } else {
+                outputDiv.classList.remove('wrap');
+            }
+            vscode.postMessage({ type: 'set-wrap', value: wrapToggle.checked });
+        };
+        wrapToggle.onchange = updateWrap;
+        updateWrap();
 
         function stripAnsi(text) {
             return text.replace(/[\\u001b\\u009b][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><]/g, '');
