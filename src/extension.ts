@@ -26,6 +26,8 @@ export function activate(context: vscode.ExtensionContext) {
             panel.webview.onDidReceiveMessage(m => {
                 if (m.type === 'log') {
                     console.log('Webview Log:', m.data);
+                } else if (m.type === 'ready') {
+                    console.log('Webview is ready');
                 }
             });
         }
@@ -97,8 +99,15 @@ function getWebviewContent() {
         let allLines = [];
         let buffer = '';
         let renderPending = false;
+        const MAX_LINES = 5000;
+
+        function stripAnsi(text) {
+            return text.replace(/[\\u001b\\u009b][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><]/g, '');
+        }
 
         function log(msg) { vscode.postMessage({ type: 'log', data: msg }); }
+        
+        vscode.postMessage({ type: 'ready' });
 
         window.addEventListener('message', e => {
             if (e.data.type === 'output') {
@@ -106,7 +115,12 @@ function getWebviewContent() {
                 const parts = buffer.split(/\\r?\\n/);
                 if (parts.length > 1) {
                     buffer = parts.pop();
-                    parts.forEach(l => allLines.push(l));
+                    parts.forEach(l => {
+                        allLines.push(stripAnsi(l));
+                        if (allLines.length > MAX_LINES) {
+                            allLines.shift();
+                        }
+                    });
                     scheduleRender();
                 }
             }
@@ -159,13 +173,22 @@ function getWebviewContent() {
             const val = filterInput.value;
             const { p, b, a } = parse(val);
             
-            querySpan.textContent = p ? \`Searching for: "\${p}" [Context: B=\${b}, A=\${a}]\` : 'Showing all lines';
+            querySpan.textContent = p ? 'Searching for: "' + p + '" [Context: B=' + b + ', A=' + a + ']' : 'Showing all lines';
             statsSpan.textContent = 'Lines: ' + allLines.length;
 
-            outputDiv.innerHTML = '';
+            const fragment = document.createDocumentFragment();
+            const cleanBuffer = stripAnsi(buffer);
+            
+            const add = (text, isC) => {
+                const d = document.createElement('div');
+                d.className = 'line' + (isC ? ' context' : ' match');
+                d.textContent = text || ' ';
+                fragment.appendChild(d);
+            };
+
             if (!p) {
-                allLines.forEach(l => add(l));
-                if (buffer) add(buffer + ' (partial)', true);
+                allLines.forEach(l => add(l, false));
+                if (cleanBuffer) add(cleanBuffer + ' (partial)', true);
             } else {
                 let re; try { re = new RegExp(p, 'i'); } catch {}
                 const isM = l => re ? re.test(l) : l.toLowerCase().includes(p.toLowerCase());
@@ -189,23 +212,18 @@ function getWebviewContent() {
                     if (last !== -1 && i > last + 1) {
                         const s = document.createElement('div');
                         s.className = 'sep'; s.textContent = '--';
-                        outputDiv.appendChild(s);
+                        fragment.appendChild(s);
                     }
                     add(allLines[i], !matches.has(i));
                     last = i;
                 });
 
-                if (isM(buffer)) add(buffer + ' (partial)', false);
+                if (isM(cleanBuffer)) add(cleanBuffer + ' (partial)', false);
             }
             
+            outputDiv.innerHTML = '';
+            outputDiv.appendChild(fragment);
             outputDiv.scrollTop = outputDiv.scrollHeight;
-        }
-
-        function add(text, isC) {
-            const d = document.createElement('div');
-            d.className = 'line' + (isC ? ' context' : ' match');
-            d.textContent = text || ' ';
-            outputDiv.appendChild(d);
         }
     </script>
 </body>

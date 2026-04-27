@@ -2,8 +2,8 @@
   "name": "debug-console-grep",
   "displayName": "Debug Console Grep",
   "publisher": "local-dev",
-  "description": "Add grep functionality for debag console",
-  "version": "0.0.1",
+  "description": "Add grep functionality for debug console",
+  "version": "0.0.2",
   "engines": {
     "vscode": "^1.116.0"
   },
