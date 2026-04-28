@@ -8,6 +8,7 @@ export function activate(context: vscode.ExtensionContext) {
             panel.reveal(vscode.ViewColumn.Two);
         } else {
             const initialWrap = context.globalState.get<boolean>('grep-console-wrap', false);
+            const initialAutoScroll = context.globalState.get<boolean>('grep-console-autoscroll', true);
             panel = vscode.window.createWebviewPanel(
                 'grepConsole',
                 'Grep Console',
@@ -18,7 +19,7 @@ export function activate(context: vscode.ExtensionContext) {
                 }
             );
 
-            panel.webview.html = getWebviewContent(initialWrap);
+            panel.webview.html = getWebviewContent(initialWrap, initialAutoScroll);
             
             panel.onDidDispose(() => {
                 panel = undefined;
@@ -31,6 +32,8 @@ export function activate(context: vscode.ExtensionContext) {
                     console.log('Webview is ready');
                 } else if (m.type === 'set-wrap') {
                     context.globalState.update('grep-console-wrap', m.value);
+                } else if (m.type === 'set-autoscroll') {
+                    context.globalState.update('grep-console-autoscroll', m.value);
                 }
             });
         }
@@ -40,19 +43,15 @@ export function activate(context: vscode.ExtensionContext) {
 
     const tracker = vscode.debug.registerDebugAdapterTrackerFactory('*', {
         createDebugAdapterTracker(session: vscode.DebugSession) {
-            console.log(`Grep Console: Creating tracker for session ${session.id} (${session.name})`);
             return {
                 onDidSendMessage: (message) => {
                     if (message.type === 'event' && message.event === 'output') {
-                        const output = message.body.output;
-                        if (output) {
-                            console.log(`Grep Console: Received output (${output.length} chars): ${output.substring(0, 50)}...`);
-                            if (panel) {
-                                panel.webview.postMessage({ 
-                                    type: 'output', 
-                                    data: output 
-                                });
-                            }
+                        const output = message.body?.output || message.body?.text;
+                        if (output && panel) {
+                            panel.webview.postMessage({ 
+                                type: 'output', 
+                                data: output 
+                            });
                         }
                     }
                 }
@@ -63,7 +62,7 @@ export function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(tracker);
 }
 
-function getWebviewContent(initialWrap: boolean) {
+function getWebviewContent(initialWrap: boolean, initialAutoScroll: boolean) {
     return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -80,7 +79,7 @@ function getWebviewContent(initialWrap: boolean) {
         #debug-info { font-size: 10px; opacity: 0.6; margin-top: 4px; height: 1.2em; display: flex; justify-content: space-between; }
         #output { flex: 1; overflow-y: auto; padding: 8px; font-family: var(--vscode-editor-font-family), monospace; white-space: pre; font-size: 12px; }
         #output.wrap { white-space: pre-wrap; }
-        .line { border-bottom: 1px solid rgba(128, 128, 128, 0.05); line-height: 1.4; }
+        .line { border-bottom: 1px solid rgba(128, 128, 128, 0.05); line-height: 1.4; contain: layout style; will-change: contents; }
         .match { font-weight: bold; color: var(--vscode-terminal-ansiBrightYellow); background: rgba(255, 255, 0, 0.05); }
         .context { opacity: 0.5; font-style: italic; }
         .sep { border-bottom: 1px dashed var(--vscode-panel-border); margin: 4px 0; opacity: 0.3; text-align: center; font-size: 10px; }
@@ -93,6 +92,9 @@ function getWebviewContent(initialWrap: boolean) {
             <label class="checkbox-container">
                 <input type="checkbox" id="wrap-toggle" ${initialWrap ? 'checked' : ''} /> Wrap
             </label>
+            <label class="checkbox-container">
+                <input type="checkbox" id="autoscroll-toggle" ${initialAutoScroll ? 'checked' : ''} /> Auto-scroll
+            </label>
             <button id="clear">Clear</button>
         </div>
         <div id="debug-info">
@@ -104,14 +106,18 @@ function getWebviewContent(initialWrap: boolean) {
     <script>
         const vscode = acquireVsCodeApi();
         const outputDiv = document.getElementById('output');
+        
         const filterInput = document.getElementById('filter');
         const wrapToggle = document.getElementById('wrap-toggle');
+        const autoScrollToggle = document.getElementById('autoscroll-toggle');
         const querySpan = document.getElementById('parsed-query');
         const statsSpan = document.getElementById('stats');
         
         let allLines = [];
         let buffer = '';
         let renderPending = false;
+        let linesRemovedSinceLastRender = 0;
+        let lastFilterState = { p: '', b: 0, a: 0 };
         const MAX_LINES = 5000;
 
         const updateWrap = () => {
@@ -121,14 +127,18 @@ function getWebviewContent(initialWrap: boolean) {
                 outputDiv.classList.remove('wrap');
             }
             vscode.postMessage({ type: 'set-wrap', value: wrapToggle.checked });
+            scheduleRender(true);
         };
         wrapToggle.onchange = updateWrap;
-        updateWrap();
+
+        autoScrollToggle.onchange = () => {
+            vscode.postMessage({ type: 'set-autoscroll', value: autoScrollToggle.checked });
+        };
 
         function stripAnsi(text) {
             if (typeof text !== 'string') return text;
             // eslint-disable-next-line no-control-regex
-            return text.replace(/[\\u001b\\u009b][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><]/g, '');
+            return text.replace(/[\\x1b\\x9b][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><]/g, '');
         }
 
         function log(msg) { vscode.postMessage({ type: 'log', data: msg }); }
@@ -137,14 +147,23 @@ function getWebviewContent(initialWrap: boolean) {
 
         window.addEventListener('message', e => {
             try {
-                console.log('Webview received message:', e.data.type);
                 if (e.data.type === 'output') {
-                    buffer += e.data.data;
+                    const incoming = e.data.data || '';
+                    buffer += incoming;
                     const parts = buffer.split(/\\r?\\n/);
                     if (parts.length > 1) {
                         buffer = parts.pop();
                         const newLines = parts.map(l => stripAnsi(l));
-                        allLines.push(...newLines);
+                        
+                        const removed = Math.max(0, (allLines.length + newLines.length) - MAX_LINES);
+                        if (removed > 0) {
+                            linesRemovedSinceLastRender += removed;
+                        }
+
+                        for (let i = 0; i < newLines.length; i++) {
+                            allLines.push(newLines[i]);
+                        }
+
                         if (allLines.length > MAX_LINES) {
                             allLines.splice(0, allLines.length - MAX_LINES);
                         }
@@ -152,29 +171,33 @@ function getWebviewContent(initialWrap: boolean) {
                     }
                 }
             } catch (err) {
-                log('Webview Error in message listener: ' + err.message);
+                log('Webview Error: ' + err.message);
             }
         });
 
         document.getElementById('clear').onclick = () => {
             allLines = [];
             buffer = '';
+            linesRemovedSinceLastRender = 0;
             outputDiv.innerHTML = '';
-            scheduleRender();
+            scheduleRender(true);
         };
 
-        filterInput.oninput = scheduleRender;
+        filterInput.oninput = () => scheduleRender(true);
 
-        function scheduleRender() {
+        let needsFullRender = false;
+        function scheduleRender(full = false) {
+            if (full) needsFullRender = true;
             if (renderPending) return;
             renderPending = true;
             requestAnimationFrame(() => {
                 try {
-                    render();
+                    render(needsFullRender);
                 } catch (e) {
                     log('Error during render: ' + e.message);
                 } finally {
                     renderPending = false;
+                    needsFullRender = false;
                 }
             });
         }
@@ -199,62 +222,125 @@ function getWebviewContent(initialWrap: boolean) {
             return { p, b, a };
         }
 
-        function render() {
+        function createLineElement(text, isContext) {
+            const d = document.createElement('div');
+            d.className = 'line' + (isContext ? ' context' : ' match');
+            d.textContent = text || ' ';
+            return d;
+        }
+
+        function render(forceFull = false) {
             const val = filterInput.value;
             const { p, b, a } = parse(val);
             
+            const filterChanged = forceFull || p !== lastFilterState.p || b !== lastFilterState.b || a !== lastFilterState.a;
+            
+            // If we have a filter, we must do a full render to ensure context is correct
+            const isIncrementalPossible = !filterChanged && !p;
+            
+            lastFilterState = { p, b, a };
             querySpan.textContent = p ? 'Searching for: "' + p + '" [Context: B=' + b + ', A=' + a + ']' : 'Showing all lines';
             statsSpan.textContent = 'Lines: ' + allLines.length;
 
-            const fragment = document.createDocumentFragment();
-            const cleanBuffer = stripAnsi(buffer);
-            
-            const add = (text, isC) => {
-                const d = document.createElement('div');
-                d.className = 'line' + (isC ? ' context' : ' match');
-                d.textContent = text || ' ';
-                fragment.appendChild(d);
-            };
+            if (isIncrementalPossible) {
+                const removed = linesRemovedSinceLastRender;
+                linesRemovedSinceLastRender = 0;
 
-            if (!p) {
-                allLines.forEach(l => add(l, false));
-                if (cleanBuffer) add(cleanBuffer + ' (partial)', true);
+                let heightOfRemoved = 0;
+                if (removed > 0 && outputDiv.children.length > 0) {
+                    const stayIndex = Math.min(removed, outputDiv.children.length);
+                    const firstLine = outputDiv.children[0];
+                    if (stayIndex < outputDiv.children.length) {
+                        heightOfRemoved = outputDiv.children[stayIndex].offsetTop - firstLine.offsetTop;
+                    } else {
+                        const lastChild = outputDiv.lastChild;
+                        if (lastChild) heightOfRemoved = lastChild.offsetTop + lastChild.offsetHeight - firstLine.offsetTop;
+                    }
+                    
+                    for (let i = 0; i < removed; i++) {
+                        if (outputDiv.firstChild) outputDiv.removeChild(outputDiv.firstChild);
+                    }
+                }
+
+                const previousScrollTop = outputDiv.scrollTop;
+                const isAtBottom = (outputDiv.scrollHeight - outputDiv.scrollTop - outputDiv.clientHeight) < 30;
+
+                const currentDomCount = outputDiv.children.length;
+                const fragment = document.createDocumentFragment();
+                for (let i = currentDomCount; i < allLines.length; i++) {
+                    fragment.appendChild(createLineElement(allLines[i], false));
+                }
+                outputDiv.appendChild(fragment);
+
+                if (autoScrollToggle.checked && isAtBottom) {
+                    outputDiv.scrollTop = outputDiv.scrollHeight;
+                } else {
+                    outputDiv.scrollTop = previousScrollTop - heightOfRemoved;
+                }
             } else {
-                let re; try { re = new RegExp(p, 'i'); } catch {}
-                const isM = l => re ? re.test(l) : l.toLowerCase().includes(p.toLowerCase());
-                
-                const matches = new Set();
-                const visible = new Set();
-                
-                allLines.forEach((l, i) => {
-                    if (isM(l)) {
-                        matches.add(i);
-                        for (let j = Math.max(0, i - b); j <= Math.min(allLines.length - 1, i + a); j++) {
-                            visible.add(j);
+                // Full render for filtered view or filter change
+                const removed = linesRemovedSinceLastRender;
+                linesRemovedSinceLastRender = 0;
+
+                let heightOfRemovedVisible = 0;
+                if (removed > 0 && !autoScrollToggle.checked && outputDiv.children.length > 0) {
+                    const stayIndex = Math.min(removed, outputDiv.children.length);
+                    const firstLine = outputDiv.children[0];
+                    if (stayIndex < outputDiv.children.length) {
+                        heightOfRemovedVisible = outputDiv.children[stayIndex].offsetTop - firstLine.offsetTop;
+                    }
+                }
+
+                const previousScrollTop = outputDiv.scrollTop;
+                const isAtBottom = (outputDiv.scrollHeight - outputDiv.scrollTop - outputDiv.clientHeight) < 30;
+
+                const fragment = document.createDocumentFragment();
+                const cleanBuffer = stripAnsi(buffer);
+
+                if (!p) {
+                    allLines.forEach(l => fragment.appendChild(createLineElement(l, false)));
+                    if (cleanBuffer) fragment.appendChild(createLineElement(cleanBuffer + ' (partial)', true));
+                } else {
+                    let re; try { re = new RegExp(p, 'i'); } catch {}
+                    const isM = l => re ? re.test(l) : l.toLowerCase().includes(p.toLowerCase());
+                    const matches = new Set();
+                    const visible = new Set();
+                    
+                    allLines.forEach((l, i) => {
+                        if (isM(l)) {
+                            matches.add(i);
+                            for (let j = Math.max(0, i - b); j <= Math.min(allLines.length - 1, i + a); j++) {
+                                visible.add(j);
+                            }
                         }
-                    }
-                });
+                    });
 
-                const sorted = Array.from(visible).sort((x, y) => x - y);
-                let last = -1;
-                
-                sorted.forEach(i => {
-                    if (last !== -1 && i > last + 1) {
-                        const s = document.createElement('div');
-                        s.className = 'sep'; s.textContent = '--';
-                        fragment.appendChild(s);
-                    }
-                    add(allLines[i], !matches.has(i));
-                    last = i;
-                });
+                    const sorted = Array.from(visible).sort((x, y) => x - y);
+                    let last = -1;
+                    sorted.forEach(i => {
+                        if (last !== -1 && i > last + 1) {
+                            const s = document.createElement('div');
+                            s.className = 'sep'; s.textContent = '--';
+                            fragment.appendChild(s);
+                        }
+                        fragment.appendChild(createLineElement(allLines[i], !matches.has(i)));
+                        last = i;
+                    });
+                    if (isM(cleanBuffer)) fragment.appendChild(createLineElement(cleanBuffer + ' (partial)', false));
+                }
 
-                if (isM(cleanBuffer)) add(cleanBuffer + ' (partial)', false);
+                outputDiv.innerHTML = '';
+                outputDiv.appendChild(fragment);
+
+                if (autoScrollToggle.checked && isAtBottom) {
+                    outputDiv.scrollTop = outputDiv.scrollHeight;
+                } else {
+                    outputDiv.scrollTop = previousScrollTop - heightOfRemovedVisible;
+                }
             }
-            
-            outputDiv.innerHTML = '';
-            outputDiv.appendChild(fragment);
-            outputDiv.scrollTop = outputDiv.scrollHeight;
         }
+
+        updateWrap();
     </script>
 </body>
 </html>`;
