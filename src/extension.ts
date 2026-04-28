@@ -40,15 +40,19 @@ export function activate(context: vscode.ExtensionContext) {
 
     const tracker = vscode.debug.registerDebugAdapterTrackerFactory('*', {
         createDebugAdapterTracker(session: vscode.DebugSession) {
+            console.log(`Grep Console: Creating tracker for session ${session.id} (${session.name})`);
             return {
                 onDidSendMessage: (message) => {
                     if (message.type === 'event' && message.event === 'output') {
                         const output = message.body.output;
-                        if (output && panel) {
-                            panel.webview.postMessage({ 
-                                type: 'output', 
-                                data: output 
-                            });
+                        if (output) {
+                            console.log(`Grep Console: Received output (${output.length} chars): ${output.substring(0, 50)}...`);
+                            if (panel) {
+                                panel.webview.postMessage({ 
+                                    type: 'output', 
+                                    data: output 
+                                });
+                            }
                         }
                     }
                 }
@@ -122,6 +126,8 @@ function getWebviewContent(initialWrap: boolean) {
         updateWrap();
 
         function stripAnsi(text) {
+            if (typeof text !== 'string') return text;
+            // eslint-disable-next-line no-control-regex
             return text.replace(/[\\u001b\\u009b][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><]/g, '');
         }
 
@@ -130,19 +136,23 @@ function getWebviewContent(initialWrap: boolean) {
         vscode.postMessage({ type: 'ready' });
 
         window.addEventListener('message', e => {
-            if (e.data.type === 'output') {
-                buffer += e.data.data;
-                const parts = buffer.split(/\\r?\\n/);
-                if (parts.length > 1) {
-                    buffer = parts.pop();
-                    parts.forEach(l => {
-                        allLines.push(stripAnsi(l));
+            try {
+                console.log('Webview received message:', e.data.type);
+                if (e.data.type === 'output') {
+                    buffer += e.data.data;
+                    const parts = buffer.split(/\\r?\\n/);
+                    if (parts.length > 1) {
+                        buffer = parts.pop();
+                        const newLines = parts.map(l => stripAnsi(l));
+                        allLines.push(...newLines);
                         if (allLines.length > MAX_LINES) {
-                            allLines.shift();
+                            allLines.splice(0, allLines.length - MAX_LINES);
                         }
-                    });
-                    scheduleRender();
+                        scheduleRender();
+                    }
                 }
+            } catch (err) {
+                log('Webview Error in message listener: ' + err.message);
             }
         });
 
