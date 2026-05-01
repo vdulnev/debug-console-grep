@@ -1,0 +1,114 @@
+body {
+    font-family: var(--vscode-editor-font-family), sans-serif;
+    padding: 0;
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    background: var(--vscode-editor-background);
+    color: var(--vscode-foreground);
+    overflow: hidden;
+}
+
+#header {
+    padding: 8px;
+    border-bottom: 1px solid var(--vscode-panel-border);
+    background: var(--vscode-sideBar-background);
+    flex-shrink: 0;
+}
+
+#controls {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+
+input {
+    flex: 1;
+    padding: 4px 8px;
+    background: var(--vscode-input-background);
+    color: var(--vscode-input-foreground);
+    border: 1px solid var(--vscode-input-border);
+    outline: none;
+}
+
+input:focus {
+    border-color: var(--vscode-focusBorder);
+}
+
+button {
+    padding: 4px 12px;
+    background: var(--vscode-button-background);
+    color: var(--vscode-button-foreground);
+    border: none;
+    cursor: pointer;
+}
+
+button:hover {
+    background: var(--vscode-button-hoverBackground);
+}
+
+.checkbox-container {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 11px;
+    cursor: pointer;
+    user-select: none;
+}
+
+#debug-info {
+    font-size: 10px;
+    opacity: 0.6;
+    margin-top: 4px;
+    height: 1.2em;
+    display: flex;
+    justify-content: space-between;
+}
+
+#output {
+    flex: 1;
+    overflow-y: auto;
+    padding: 8px;
+    font-family: var(--vscode-editor-font-family), monospace;
+    font-size: 12px;
+    position: relative;
+    white-space: pre;
+}
+
+#output.wrap {
+    white-space: pre-wrap;
+}
+
+#inner {
+    position: relative;
+    width: 100%;
+}
+
+.line {
+    line-height: 1.4;
+    contain: layout style;
+}
+
+#output.wrap .line {
+    white-space: pre-wrap;
+}
+
+.match {
+    font-weight: bold;
+    color: var(--vscode-terminal-ansiBrightYellow);
+    background: rgba(255, 255, 0, 0.05);
+}
+
+.context {
+    opacity: 0.5;
+    font-style: italic;
+}
+
+.sep {
+    border-bottom: 1px dashed var(--vscode-panel-border);
+    margin: 4px 0;
+    opacity: 0.3;
+    text-align: center;
+    font-size: 10px;
+}

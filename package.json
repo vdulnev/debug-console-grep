@@ -3,7 +3,7 @@
   "displayName": "Debug Console Grep",
   "publisher": "local-dev",
   "description": "Add grep functionality for debug console",
-  "version": "0.0.7",
+  "version": "0.0.8",
   "engines": {
     "vscode": "^1.116.0"
   },
@@ -11,8 +11,7 @@
     "Other"
   ],
   "activationEvents": [
-    "onDebug",
-    "onStartupFinished"
+    "onDebug"
   ],
   "main": "./dist/extension.js",
   "contributes": {
