@@ -206,7 +206,7 @@ function renderHtml(
 <body data-range-chunk="${RANGE_CHUNK}" data-ram-tail="${RAM_TAIL}">
     <div id="header">
         <div id="controls">
-            <input type="text" id="filter" placeholder="e.g. con -C2 or error -A5" spellcheck="false" />
+            <input type="text" id="filter" placeholder="e.g. error -C2  |  foo AND bar  |  warn OR fail" spellcheck="false" />
             <label class="checkbox-container">
                 <input type="checkbox" id="wrap-toggle" ${initialWrap ? 'checked' : ''} /> Wrap
             </label>

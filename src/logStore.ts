@@ -28,8 +28,41 @@ const ANSI_RE =
     /[\x1b\x9b][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><]/g;
 const stripAnsi = (s: string) => s.replace(ANSI_RE, '');
 
-const REGEX_META_RE = /[.*+?^${}()|[\]\\]/g;
-const escapeRegex = (s: string) => s.replace(REGEX_META_RE, '\\$&');
+type Matcher = (line: string) => boolean;
+
+function compileMatcher(pattern: string): Matcher | null {
+    if (!pattern) {
+        return null;
+    }
+    const groups = pattern
+        .split(/\s+OR\s+/)
+        .map((g) =>
+            g
+                .split(/\s+AND\s+/)
+                .map((t) => t.trim().toLowerCase())
+                .filter((t) => t.length > 0),
+        )
+        .filter((g) => g.length > 0);
+    if (groups.length === 0) {
+        return null;
+    }
+    return (line: string) => {
+        const lower = line.toLowerCase();
+        for (const g of groups) {
+            let all = true;
+            for (const t of g) {
+                if (lower.indexOf(t) === -1) {
+                    all = false;
+                    break;
+                }
+            }
+            if (all) {
+                return true;
+            }
+        }
+        return false;
+    };
+}
 
 interface PatternCache {
     pattern: string;
@@ -214,10 +247,8 @@ export class LogStore {
         before: number,
         after: number,
     ): Promise<MatchesResult> {
-        let re: RegExp;
-        try {
-            re = new RegExp(escapeRegex(pattern), 'i');
-        } catch {
+        const matcher = compileMatcher(pattern);
+        if (!matcher) {
             return { matches: [], visible: [] };
         }
 
@@ -226,12 +257,17 @@ export class LogStore {
             this.trimPatternCacheFront();
             const cache = this.patternCache;
             const start = Math.max(cache.scannedUpTo, this.firstAvailable);
-            await this.scanInto(re, start, this.total, cache.matches);
+            await this.scanInto(matcher, start, this.total, cache.matches);
             cache.scannedUpTo = this.total;
             matches = cache.matches;
         } else {
             matches = [];
-            await this.scanInto(re, this.firstAvailable, this.total, matches);
+            await this.scanInto(
+                matcher,
+                this.firstAvailable,
+                this.total,
+                matches,
+            );
             this.patternCache = {
                 pattern,
                 matches,
@@ -244,7 +280,7 @@ export class LogStore {
     }
 
     private async scanInto(
-        re: RegExp,
+        matcher: Matcher,
         from: number,
         to: number,
         out: number[],
@@ -260,7 +296,7 @@ export class LogStore {
                 if (i < this.firstAvailable || i >= this.total) {
                     continue;
                 }
-                if (re.test(lines[j])) {
+                if (matcher(lines[j])) {
                     out.push(i);
                 }
             }

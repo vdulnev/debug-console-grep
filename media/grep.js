@@ -50,8 +50,45 @@
         outputDiv.classList.toggle('wrap', wrapToggle.checked);
     }
 
-    function escapeRegex(s) {
-        return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    function compileMatcher(pattern) {
+        if (!pattern) {
+            return null;
+        }
+        const groups = pattern
+            .split(/\s+OR\s+/)
+            .map(function (g) {
+                return g
+                    .split(/\s+AND\s+/)
+                    .map(function (t) {
+                        return t.trim().toLowerCase();
+                    })
+                    .filter(function (t) {
+                        return t.length > 0;
+                    });
+            })
+            .filter(function (g) {
+                return g.length > 0;
+            });
+        if (groups.length === 0) {
+            return null;
+        }
+        return function (line) {
+            const lower = line.toLowerCase();
+            for (let i = 0; i < groups.length; i++) {
+                const g = groups[i];
+                let allMatch = true;
+                for (let j = 0; j < g.length; j++) {
+                    if (lower.indexOf(g[j]) === -1) {
+                        allMatch = false;
+                        break;
+                    }
+                }
+                if (allMatch) {
+                    return true;
+                }
+            }
+            return false;
+        };
     }
 
     function parseQuery(input) {
@@ -148,12 +185,11 @@
         if (!filterState.p) {
             return true;
         }
-        try {
-            const re = new RegExp(escapeRegex(filterState.p), 'i');
-            return re.test(partial);
-        } catch (err) {
-            return false;
+        const matcher = compileMatcher(filterState.p);
+        if (!matcher) {
+            return true;
         }
+        return matcher(partial);
     }
 
     function requestMatches() {
