@@ -166,6 +166,19 @@ async function handleMessage(
             await store.clear();
             post({ type: 'cleared', ...store.getState() });
             return;
+        case 'open-url': {
+            try {
+                const uri = vscode.Uri.parse(msg.url, true);
+                const scheme = uri.scheme.toLowerCase();
+                if (scheme !== 'http' && scheme !== 'https') {
+                    return;
+                }
+                await vscode.env.openExternal(uri);
+            } catch (err) {
+                console.error('grep-console open-url error:', err);
+            }
+            return;
+        }
     }
 }
 

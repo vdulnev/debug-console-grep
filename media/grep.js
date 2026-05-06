@@ -46,6 +46,54 @@
         vscode.postMessage({ type: 'log', data: String(msg) });
     }
 
+    const URL_RE = /\bhttps?:\/\/[^\s<>"'`]+/g;
+    const URL_TRIM_RE = /[.,;:!?)\]}>'"`]+$/;
+
+    function setLineContent(div, text) {
+        if (div._renderedText === text) {
+            return;
+        }
+        div._renderedText = text;
+        div.textContent = '';
+        if (!text) {
+            return;
+        }
+        URL_RE.lastIndex = 0;
+        let last = 0;
+        let any = false;
+        let m;
+        while ((m = URL_RE.exec(text)) !== null) {
+            const raw = m[0];
+            const trimmed = raw.replace(URL_TRIM_RE, '');
+            if (!trimmed) {
+                continue;
+            }
+            any = true;
+            const start = m.index;
+            const end = start + trimmed.length;
+            if (start > last) {
+                div.appendChild(
+                    document.createTextNode(text.slice(last, start)),
+                );
+            }
+            const a = document.createElement('a');
+            a.className = 'log-url';
+            a.textContent = trimmed;
+            a.dataset.url = trimmed;
+            a.href = trimmed;
+            div.appendChild(a);
+            last = end;
+            URL_RE.lastIndex = end;
+        }
+        if (!any) {
+            div.textContent = text;
+            return;
+        }
+        if (last < text.length) {
+            div.appendChild(document.createTextNode(text.slice(last)));
+        }
+    }
+
     function applyWrapClass() {
         outputDiv.classList.toggle('wrap', wrapToggle.checked);
     }
@@ -417,9 +465,7 @@
         if (div.className !== cls) {
             div.className = cls;
         }
-        if (div.textContent !== text) {
-            div.textContent = text;
-        }
+        setLineContent(div, text);
     }
 
     function renderVirtual() {
@@ -592,9 +638,7 @@
             if (div.className !== spec.cls) {
                 div.className = spec.cls;
             }
-            if (div.textContent !== spec.text) {
-                div.textContent = spec.text;
-            }
+            setLineContent(div, spec.text);
             if (div.style.position) {
                 div.style.position = '';
                 div.style.top = '';
@@ -651,6 +695,22 @@
         filterResult = null;
         vscode.postMessage({ type: 'clear' });
     };
+
+    innerDiv.addEventListener('click', function (e) {
+        const target = e.target;
+        if (!target || typeof target.closest !== 'function') {
+            return;
+        }
+        const a = target.closest('a.log-url');
+        if (!a) {
+            return;
+        }
+        e.preventDefault();
+        const url = a.dataset.url;
+        if (url) {
+            vscode.postMessage({ type: 'open-url', url: url });
+        }
+    });
 
     outputDiv.addEventListener('scroll', function () {
         scheduleRender();

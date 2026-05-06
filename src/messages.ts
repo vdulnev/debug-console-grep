@@ -36,4 +36,5 @@ export type WebviewMsg =
           before: number;
           after: number;
       }
-    | { type: 'clear' };
+    | { type: 'clear' }
+    | { type: 'open-url'; url: string };

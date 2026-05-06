@@ -112,3 +112,13 @@ button:hover {
     text-align: center;
     font-size: 10px;
 }
+
+.log-url {
+    color: var(--vscode-textLink-foreground);
+    text-decoration: underline;
+    cursor: pointer;
+}
+
+.log-url:hover {
+    color: var(--vscode-textLink-activeForeground);
+}
