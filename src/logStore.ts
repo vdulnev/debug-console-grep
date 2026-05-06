@@ -28,6 +28,9 @@ const ANSI_RE =
     /[\x1b\x9b][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><]/g;
 const stripAnsi = (s: string) => s.replace(ANSI_RE, '');
 
+const REGEX_META_RE = /[.*+?^${}()|[\]\\]/g;
+const escapeRegex = (s: string) => s.replace(REGEX_META_RE, '\\$&');
+
 interface PatternCache {
     pattern: string;
     matches: number[];
@@ -213,7 +216,7 @@ export class LogStore {
     ): Promise<MatchesResult> {
         let re: RegExp;
         try {
-            re = new RegExp(pattern, 'i');
+            re = new RegExp(escapeRegex(pattern), 'i');
         } catch {
             return { matches: [], visible: [] };
         }

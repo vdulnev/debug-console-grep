@@ -50,6 +50,10 @@
         outputDiv.classList.toggle('wrap', wrapToggle.checked);
     }
 
+    function escapeRegex(s) {
+        return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    }
+
     function parseQuery(input) {
         let b = 0;
         let a = 0;
@@ -145,7 +149,7 @@
             return true;
         }
         try {
-            const re = new RegExp(filterState.p, 'i');
+            const re = new RegExp(escapeRegex(filterState.p), 'i');
             return re.test(partial);
         } catch (err) {
             return false;
