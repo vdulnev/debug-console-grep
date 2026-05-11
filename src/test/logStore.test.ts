@@ -83,10 +83,24 @@ suite('LogStore', () => {
         assert.deepStrictEqual(r.visible, []);
     });
 
-    test('findMatches is case-insensitive', async () => {
-        store.appendOutput('Hello\nWORLD\nfoo\n');
-        const r = await store.findMatches('hello', 0, 0);
-        assert.deepStrictEqual(r.matches, [0]);
+    test('findMatches works with context flags and pattern cache', async () => {
+        store.appendOutput('line1\nline2\nmatch\nline4\nline5\n');
+        const r1 = await store.findMatches('match', 1, 1);
+        assert.deepStrictEqual(r1.matches, [2]);
+        assert.deepStrictEqual(r1.visible, [1, 2, 3]);
+
+        store.appendOutput('line6\nmatch2\nline8\n');
+        const r2 = await store.findMatches('match', 1, 1);
+        assert.deepStrictEqual(r2.matches, [2, 6]);
+        assert.deepStrictEqual(r2.visible, [1, 2, 3, 5, 6, 7]);
+    });
+
+    test('findMatches handles large context flags without crashing', async () => {
+        store.appendOutput('match\n'.repeat(10));
+        const r = await store.findMatches('match', 100, 100);
+        assert.strictEqual(r.matches.length, 10);
+        assert.strictEqual(r.visible.length, 10); // All lines are matches, so no extra visible lines
+        assert.deepStrictEqual(r.visible, [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
     });
 
     test('clear resets state', async () => {

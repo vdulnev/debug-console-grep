@@ -68,7 +68,7 @@ button:hover {
 
 #output {
     flex: 1;
-    overflow-y: auto;
+    overflow: auto;
     padding: 8px;
     font-family: var(--vscode-editor-font-family), monospace;
     font-size: 12px;
@@ -83,11 +83,13 @@ button:hover {
 #inner {
     position: relative;
     width: 100%;
+    min-width: max-content;
 }
 
 .line {
     line-height: 1.4;
     contain: layout style;
+    min-width: 100%;
 }
 
 #output.wrap .line {

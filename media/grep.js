@@ -146,7 +146,7 @@
         const FLAG_RE = /(\s)-([ABC])\s*(\d+)/i;
         let m;
         while ((m = p.match(FLAG_RE)) !== null) {
-            const v = parseInt(m[3], 10);
+            const v = Math.min(1000, parseInt(m[3], 10) || 0);
             const f = m[2].toUpperCase();
             if (f === 'A') {
                 a = v;
@@ -450,7 +450,6 @@
             div = document.createElement('div');
             div.style.position = 'absolute';
             div.style.left = '0';
-            div.style.right = '0';
             innerDiv.appendChild(div);
             rowCache.set(key, div);
         }
